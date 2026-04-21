@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inbox Triage — A Calm Email Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --bg-card: #faf8f3;
+    --bg-soft: #ebe6d9;
+    --ink: #2d3a2e;
+    --ink-soft: #5a6b5c;
+    --ink-faint: #8a9489;
+    --sage: #8ba888;
+    --sage-deep: #5d7a5e;
+    --accent: #b8956a;
+    --line: #d8d2c2;
+    --shadow: 0 1px 2px rgba(45, 58, 46, 0.04), 0 8px 24px rgba(45, 58, 46, 0.06);
+    --radius: 4px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-weight: 400;
+    line-height: 1.6;
+    min-height: 100vh;
+    padding: 60px 24px;
+    background-image:
+      radial-gradient(circle at 20% 10%, rgba(139, 168, 136, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 80% 90%, rgba(184, 149, 106, 0.06) 0%, transparent 50%);
+  }
+
+  .container {
+    max-width: 920px;
+    margin: 0 auto;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 64px;
+    animation: fadeUp 0.8s ease-out;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--sage-deep);
+    font-weight: 500;
+    margin-bottom: 20px;
+  }
+
+  h1 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(38px, 5vw, 56px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin-bottom: 18px;
+    font-style: italic;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--sage-deep);
+  }
+
+  .subtitle {
+    font-size: 16px;
+    color: var(--ink-soft);
+    max-width: 520px;
+    margin: 0 auto;
+    font-weight: 300;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 36px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+    animation: fadeUp 0.8s ease-out backwards;
+  }
+
+  .card:nth-of-type(1) { animation-delay: 0.1s; }
+  .card:nth-of-type(2) { animation-delay: 0.2s; }
+
+  .field-label {
+    font-family: 'Fraunces', serif;
+    font-size: 18px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+
+  .field-help {
+    font-size: 13px;
+    color: var(--ink-faint);
+    margin-bottom: 16px;
+    font-style: italic;
+  }
+
+  input[type="text"] {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+    font-family: inherit;
+    font-size: 15px;
+    color: var(--ink);
+    transition: all 0.2s ease;
+  }
+
+  input[type="text"]:focus {
+    outline: none;
+    border-color: var(--sage);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(139, 168, 136, 0.15);
+  }
+
+  .dropzone {
+    border: 1.5px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    background: var(--bg);
+  }
+
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--sage);
+    background: rgba(139, 168, 136, 0.05);
+  }
+
+  .dropzone-icon {
+    width: 36px;
+    height: 36px;
+    margin: 0 auto 16px;
+    color: var(--sage);
+    opacity: 0.7;
+  }
+
+  .dropzone-text {
+    font-size: 15px;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+
+  .dropzone-text strong {
+    color: var(--sage-deep);
+    font-weight: 500;
+    border-bottom: 1px solid var(--sage);
+    padding-bottom: 1px;
+  }
+
+  .dropzone-hint {
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-style: italic;
+  }
+
+  .file-status {
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--sage-deep);
+    font-weight: 500;
+    display: none;
+  }
+
+  .file-status.shown { display: block; }
+
+  button.primary {
+    display: block;
+    width: 100%;
+    padding: 16px 24px;
+    background: var(--ink);
+    color: var(--bg-card);
+    border: none;
+    border-radius: var(--radius);
+    font-family: 'Fraunces', serif;
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 8px;
+  }
+
+  button.primary:hover:not(:disabled) {
+    background: var(--sage-deep);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(45, 58, 46, 0.15);
+  }
+
+  button.primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .progress {
+    margin: 24px 0;
+    display: none;
+  }
+
+  .progress.shown { display: block; }
+
+  .progress-bar {
+    height: 3px;
+    background: var(--bg-soft);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--sage);
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  .progress-text {
+    font-size: 13px;
+    color: var(--ink-soft);
+    font-style: italic;
+    text-align: center;
+  }
+
+  .results {
+    display: none;
+    animation: fadeUp 0.6s ease-out;
+  }
+
+  .results.shown { display: block; }
+
+  .results-header {
+    text-align: center;
+    margin: 56px 0 32px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .results-quote {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 22px;
+    color: var(--ink);
+    line-height: 1.4;
+    max-width: 580px;
+    margin: 0 auto 12px;
+  }
+
+  .results-stats {
+    font-size: 13px;
+    color: var(--ink-faint);
+    letter-spacing: 0.05em;
+  }
+
+  .section-title {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    font-weight: 500;
+    margin: 40px 0 8px;
+    color: var(--ink);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  .section-title .count {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--sage-deep);
+    background: rgba(139, 168, 136, 0.15);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+  }
+
+  .section-subtitle {
+    font-size: 14px;
+    color: var(--ink-faint);
+    font-style: italic;
+    margin-bottom: 24px;
+  }
+
+  .email-item {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 12px;
+    transition: all 0.2s ease;
+  }
+
+  .email-item:hover {
+    border-color: var(--sage);
+    box-shadow: var(--shadow);
+  }
+
+  .email-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+  }
+
+  .email-from {
+    font-weight: 500;
+    color: var(--ink-soft);
+  }
+
+  .email-subject {
+    font-family: 'Fraunces', serif;
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-bottom: 10px;
+    line-height: 1.35;
+  }
+
+  .email-snippet {
+    font-size: 14px;
+    color: var(--ink-soft);
+    line-height: 1.55;
+  }
+
+  mark {
+    background: rgba(184, 149, 106, 0.25);
+    color: var(--ink);
+    padding: 1px 3px;
+    border-radius: 2px;
+    font-weight: 500;
+  }
+
+  .keyword-tag {
+    display: inline-block;
+    font-size: 11px;
+    background: rgba(139, 168, 136, 0.18);
+    color: var(--sage-deep);
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-right: 6px;
+    margin-top: 8px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-family: 'Fraunces', serif;
+    font-size: 28px;
+    color: var(--ink);
+    font-weight: 400;
+  }
+
+  .topic-list, .sender-list {
+    list-style: none;
+  }
+
+  .topic-list li, .sender-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+
+  .topic-list li:last-child, .sender-list li:last-child {
+    border-bottom: none;
+  }
+
+  .topic-name {
+    color: var(--ink);
+    text-transform: capitalize;
+  }
+
+  .topic-count {
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 32px;
+    color: var(--ink-faint);
+    font-style: italic;
+    font-family: 'Fraunces', serif;
+  }
+
+  footer {
+    text-align: center;
+    margin-top: 72px;
+    padding-top: 32px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-style: italic;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 600px) {
+    body { padding: 32px 16px; }
+    .card { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="eyebrow">For Steven · with love</div>
+    <h1>A thousand emails,<br><em>handled.</em></h1>
+    <p class="subtitle">Pop in the keywords that matter. Drop the zip. Have a brew. We'll do the heavy lifting — quietly, and entirely in your browser.</p>
+  </header>
+
+  <div class="card">
+    <div class="field-label">Keywords</div>
+    <div class="field-help">Separate with commas. Don't fuss about case — we're not bothered.</div>
+    <input type="text" id="keywords" placeholder="invoice, urgent, contract, Linda from accounts...">
+  </div>
+
+  <div class="card">
+    <div class="field-label">Your inbox, in a tidy little zip</div>
+    <div class="field-help">Drag a .zip containing .eml, .msg, or .txt files. Nothing leaves your machine — promise.</div>
+    <div class="dropzone" id="dropzone">
+      <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <div class="dropzone-text"><strong>Choose a file</strong> or drop one here</div>
+      <div class="dropzone-hint">.zip files only, please. Be a good chap.</div>
+      <input type="file" id="fileInput" accept=".zip" style="display:none">
+      <div class="file-status" id="fileStatus"></div>
+    </div>
+  </div>
+
+  <button class="primary" id="scanBtn" disabled>Crack on with it</button>
+
+  <div class="progress" id="progress">
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-text" id="progressText">Just putting the kettle on...</div>
+  </div>
+
+  <div class="results" id="results"></div>
+
+  <footer>Made with care. Your emails never leave this browser tab — cross our hearts.</footer>
+</div>
+
+<script>
+// ============ FUN BRITISH MICROCOPY ============
+const loadingPhrases = [
+  "Just putting the kettle on...",
+  "Having a quick rummage...",
+  "Sorting the wheat from the chaff...",
+  "Right then, let's see what we've got...",
+  "Reading every blasted one of them...",
+  "Almost there — bear with...",
+  "Tidying up the last few...",
+  "Putting it all in order, like a librarian on a mission..."
+];
+
+const completionQuotes = [
+  "Brilliant. That's that, then.",
+  "Sorted. You can put the kettle on now.",
+  "Bob's your uncle — all done.",
+  "Right, that's the lot.",
+  "Job's a good'un.",
+  "Ta-da. Have a biscuit."
+];
+
+const noKeywordsQuotes = [
+  "No matches found, but here's the lay of the land.",
+  "Nothing matched your keywords — but here's a tidy summary anyway.",
+  "Drew a blank on the keywords. Don't fret, here's an overview."
+];
+
+// ============ STATE ============
+let zipFile = null;
+
+// ============ DOM ============
+const fileInput = document.getElementById('fileInput');
+const dropzone = document.getElementById('dropzone');
+const fileStatus = document.getElementById('fileStatus');
+const scanBtn = document.getElementById('scanBtn');
+const keywordsInput = document.getElementById('keywords');
+const progress = document.getElementById('progress');
+const progressFill = document.getElementById('progressFill');
+const progressText = document.getElementById('progressText');
+const results = document.getElementById('results');
+
+// ============ FILE HANDLING ============
+dropzone.addEventListener('click', () => fileInput.click());
+
+dropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropzone.classList.add('drag-over');
+});
+
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+});
+
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files.length > 0) handleFile(e.target.files[0]);
+});
+
+function handleFile(file) {
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    fileStatus.textContent = "Hmm, that's not a .zip file. Have another go?";
+    fileStatus.classList.add('shown');
+    return;
+  }
+  zipFile = file;
+  const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+  fileStatus.textContent = `✓ ${file.name} (${sizeMB} MB) — looking smashing.`;
+  fileStatus.classList.add('shown');
+  scanBtn.disabled = false;
+}
+
+// ============ EMAIL PARSING ============
+function parseEmail(content, filename) {
+  // Basic .eml/.txt header parsing
+  const lines = content.split(/\r?\n/);
+  let from = '', subject = '', date = '', body = '';
+  let inBody = false;
+  let bodyLines = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!inBody) {
+      if (line.trim() === '') { inBody = true; continue; }
+      if (/^from:/i.test(line)) from = line.replace(/^from:\s*/i, '').trim();
+      else if (/^subject:/i.test(line)) subject = line.replace(/^subject:\s*/i, '').trim();
+      else if (/^date:/i.test(line)) date = line.replace(/^date:\s*/i, '').trim();
+    } else {
+      bodyLines.push(line);
+    }
+  }
+  body = bodyLines.join('\n');
+
+  // Strip basic HTML if present
+  body = body.replace(/<style[\s\S]*?<\/style>/gi, '')
+             .replace(/<script[\s\S]*?<\/script>/gi, '')
+             .replace(/<[^>]+>/g, ' ')
+             .replace(/&nbsp;/g, ' ')
+             .replace(/&amp;/g, '&')
+             .replace(/&lt;/g, '<')
+             .replace(/&gt;/g, '>')
+             .replace(/&quot;/g, '"')
+             .replace(/\s+/g, ' ')
+             .trim();
+
+  // Decode quoted-printable basics
+  body = body.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+
+  if (!subject) subject = filename.replace(/\.[^.]+$/, '');
+  if (!from) from = '(unknown sender)';
+
+  return { from, subject, date, body, filename };
+}
+
+function extractDomain(fromField) {
+  const match = fromField.match(/@([a-zA-Z0-9.-]+)/);
+  return match ? match[1].toLowerCase() : 'unknown';
+}
+
+// Common stopwords to exclude from topic extraction
+const STOPWORDS = new Set([
+  'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','re','fwd','fw',
+  'is','was','are','were','be','been','being','have','has','had','do','does','did','will','would',
+  'could','should','may','might','must','shall','can','need','this','that','these','those','i','you',
+  'he','she','it','we','they','them','their','his','her','its','our','your','my','me','us','am',
+  'as','if','then','than','so','no','not','yes','out','up','down','about','into','over','after',
+  'before','your','please','hi','hello','hey','dear','thanks','thank','regards','best','kind',
+  'sent','sender','email','message','mail','via','use','one','two','also','just','get','got'
+]);
+
+function extractTopics(emails, topN = 8) {
+  const wordCounts = {};
+  emails.forEach(email => {
+    const words = email.subject.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !STOPWORDS.has(w) && !/^\d+$/.test(w));
+    words.forEach(w => { wordCounts[w] = (wordCounts[w] || 0) + 1; });
+  });
+  return Object.entries(wordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .filter(([, count]) => count > 1);
+}
+
+function getTopSenders(emails, topN = 6) {
+  const senderCounts = {};
+  emails.forEach(email => {
+    const domain = extractDomain(email.from);
+    senderCounts[domain] = (senderCounts[domain] || 0) + 1;
+  });
+  return Object.entries(senderCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN);
+}
+
+function findKeywordMatches(emails, keywords) {
+  if (keywords.length === 0) return [];
+  const matches = [];
+  emails.forEach(email => {
+    const haystack = (email.subject + ' ' + email.body).toLowerCase();
+    const matched = keywords.filter(kw => haystack.includes(kw.toLowerCase()));
+    if (matched.length > 0) {
+      matches.push({ ...email, matchedKeywords: matched });
+    }
+  });
+  return matches;
+}
+
+function highlightAndSnippet(text, keywords, maxLen = 220) {
+  if (!text) return '';
+  const lower = text.toLowerCase();
+  let firstIdx = -1;
+  for (const kw of keywords) {
+    const idx = lower.indexOf(kw.toLowerCase());
+    if (idx !== -1 && (firstIdx === -1 || idx < firstIdx)) firstIdx = idx;
+  }
+  let snippet;
+  if (firstIdx === -1) {
+    snippet = text.slice(0, maxLen);
+  } else {
+    const start = Math.max(0, firstIdx - 60);
+    snippet = (start > 0 ? '...' : '') + text.slice(start, start + maxLen);
+  }
+  if (text.length > snippet.length + (firstIdx > 60 ? firstIdx - 60 : 0)) snippet += '...';
+
+  // Escape HTML then highlight
+  snippet = snippet.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  keywords.forEach(kw => {
+    if (!kw) return;
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    snippet = snippet.replace(new RegExp(`(${escaped})`, 'gi'), '<mark>$1</mark>');
+  });
+  return snippet;
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ============ MAIN SCAN ============
+scanBtn.addEventListener('click', async () => {
+  if (!zipFile) return;
+
+  scanBtn.disabled = true;
+  results.classList.remove('shown');
+  results.innerHTML = '';
+  progress.classList.add('shown');
+  progressFill.style.width = '5%';
+  progressText.textContent = loadingPhrases[0];
+
+  const keywords = keywordsInput.value
+    .split(',')
+    .map(k => k.trim())
+    .filter(k => k.length > 0);
+
+  try {
+    const zip = await JSZip.loadAsync(zipFile);
+    progressFill.style.width = '15%';
+    progressText.textContent = loadingPhrases[1];
+
+    const emailFiles = [];
+    zip.forEach((path, file) => {
+      if (file.dir) return;
+      const lower = path.toLowerCase();
+      if (lower.endsWith('.eml') || lower.endsWith('.txt') || lower.endsWith('.msg')) {
+        emailFiles.push({ path, file });
+      }
+    });
+
+    if (emailFiles.length === 0) {
+      progress.classList.remove('shown');
+      results.innerHTML = `<div class="empty-state">No .eml, .msg, or .txt files in that zip. Could you have a quick look?</div>`;
+      results.classList.add('shown');
+      scanBtn.disabled = false;
+      return;
+    }
+
+    const emails = [];
+    for (let i = 0; i < emailFiles.length; i++) {
+      const { path, file } = emailFiles[i];
+      try {
+        const content = await file.async('string');
+        emails.push(parseEmail(content, path.split('/').pop()));
+      } catch (e) {
+        console.warn('Skipped', path, e);
+      }
+
+      const pct = 15 + (75 * (i + 1) / emailFiles.length);
+      progressFill.style.width = pct + '%';
+      const phraseIdx = Math.min(loadingPhrases.length - 1, Math.floor((i / emailFiles.length) * loadingPhrases.length));
+      progressText.textContent = `${loadingPhrases[phraseIdx]} (${i + 1} of ${emailFiles.length})`;
+
+      // Yield every 25 emails to keep UI responsive
+      if (i % 25 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    progressFill.style.width = '95%';
+    progressText.textContent = "Tidying up the last few...";
+    await new Promise(r => setTimeout(r, 300));
+
+    renderResults(emails, keywords);
+
+    progressFill.style.width = '100%';
+    setTimeout(() => progress.classList.remove('shown'), 400);
+    scanBtn.disabled = false;
+
+  } catch (err) {
+    console.error(err);
+    progress.classList.remove('shown');
+    results.innerHTML = `<div class="empty-state">Bother. Something went wrong: ${escapeHtml(err.message)}</div>`;
+    results.classList.add('shown');
+    scanBtn.disabled = false;
+  }
+});
+
+function renderResults(emails, keywords) {
+  const matches = findKeywordMatches(emails, keywords);
+  const topics = extractTopics(emails);
+  const senders = getTopSenders(emails);
+
+  const quote = matches.length > 0 || keywords.length === 0
+    ? completionQuotes[Math.floor(Math.random() * completionQuotes.length)]
+    : noKeywordsQuotes[Math.floor(Math.random() * noKeywordsQuotes.length)];
+
+  let html = `
+    <div class="results-header">
+      <div class="results-quote">"${quote}"</div>
+      <div class="results-stats">${emails.length} emails scanned · ${matches.length} keyword matches · ${senders.length} unique senders</div>
+    </div>
+  `;
+
+  // Keyword matches section
+  if (keywords.length > 0) {
+    html += `
+      <div class="section-title">Keyword matches <span class="count">${matches.length}</span></div>
+      <div class="section-subtitle">Emails mentioning: ${keywords.map(k => `"${escapeHtml(k)}"`).join(', ')}</div>
+    `;
+    if (matches.length === 0) {
+      html += `<div class="empty-state">Not a sausage. Nothing matched. Try different keywords?</div>`;
+    } else {
+      matches.slice(0, 100).forEach(email => {
+        html += `
+          <div class="email-item">
+            <div class="email-meta">
+              <span class="email-from">${escapeHtml(email.from)}</span>
+              <span>${escapeHtml(email.date)}</span>
+            </div>
+            <div class="email-subject">${escapeHtml(email.subject)}</div>
+            <div class="email-snippet">${highlightAndSnippet(email.body, email.matchedKeywords)}</div>
+            <div>${email.matchedKeywords.map(k => `<span class="keyword-tag">${escapeHtml(k)}</span>`).join('')}</div>
+          </div>
+        `;
+      });
+      if (matches.length > 100) {
+        html += `<div class="empty-state">...and ${matches.length - 100} more. Top 100 shown.</div>`;
+      }
+    }
+  }
+
+  // High-level summary section
+  html += `
+    <div class="section-title">The lay of the land</div>
+    <div class="section-subtitle">A high-level look at what's actually in there</div>
+
+    <div class="summary-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total emails</div>
+        <div class="stat-value">${emails.length}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Unique sender domains</div>
+        <div class="stat-value">${senders.length}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Keyword hits</div>
+        <div class="stat-value">${matches.length}</div>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="stat-card">
+        <div class="stat-label">Common subject themes</div>
+        <ul class="topic-list">
+          ${topics.length > 0
+            ? topics.map(([word, count]) => `<li><span class="topic-name">${escapeHtml(word)}</span><span class="topic-count">${count}</span></li>`).join('')
+            : '<li><span class="topic-name">No clear themes</span></li>'}
+        </ul>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Top sender domains</div>
+        <ul class="sender-list">
+          ${senders.map(([domain, count]) => `<li><span class="topic-name" style="text-transform:none">${escapeHtml(domain)}</span><span class="topic-count">${count}</span></li>`).join('')}
+        </ul>
+      </div>
+    </div>
+
+    <div class="section-title">Recent subjects, all of them <span class="count">${emails.length}</span></div>
+    <div class="section-subtitle">A scrollable index — every subject line, in case you want to scan them yourself</div>
+  `;
+
+  // Show all subjects (capped display, but list all)
+  emails.slice(0, 200).forEach(email => {
+    html += `
+      <div class="email-item" style="padding: 14px 20px;">
+        <div class="email-meta">
+          <span class="email-from">${escapeHtml(email.from)}</span>
+          <span>${escapeHtml(email.date)}</span>
+        </div>
+        <div class="email-subject" style="font-size: 15px; margin-bottom: 0;">${escapeHtml(email.subject)}</div>
+      </div>
+    `;
+  });
+  if (emails.length > 200) {
+    html += `<div class="empty-state">...and ${emails.length - 200} more. Showing the first 200 to keep things tidy.</div>`;
+  }
+
+  results.innerHTML = html;
+  results.classList.add('shown');
+  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+</script>
+</body>
+</html>
